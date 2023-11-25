@@ -1,0 +1,128 @@
+import json
+import boto3
+from botocore.exceptions import ClientError
+import uuid
+
+# 假设的DynamoDB表格名称
+USERS_TABLE = 'users_table'
+POSTS_TABLE = 'posts_table'
+COMMENTS_TABLE = 'comments_table'
+GROUP_FRIEND_LIST_TABLE = 'group_friend_list_table'
+
+# 创建DynamoDB客户端
+dynamodb = boto3.resource('dynamodb')
+sns_client = boto3.client('sns')
+
+def lambda_handler(event, context):
+    try:
+        # 根据事件类型执行不同的操作
+        if event['type'] == 'new_forum_message':
+            # 处理论坛新消息提醒
+            send_forum_message_notification(event['message'])
+        elif event['type'] == 'new_post':
+            # 发帖时向好友列表发送消息
+            create_post(event['poster_email'], event['post_content'])
+        elif event['type'] == 'new_comment':
+            # 回帖（包括楼中楼）通知
+            create_comment(event['commenter_email'], event['comment_content'], event['post_id'], event.get('parent_comment_id'))
+        else:
+            print("Event type not recognized")
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps('Operation completed successfully')
+        }
+    except Exception as e:
+        print(e)
+        return {
+            'statusCode': 500,
+            'body': json.dumps('Error processing the request')
+        }
+
+# 辅助函数定义
+
+def send_forum_message_notification(message):
+    table = dynamodb.Table(USERS_TABLE)
+    response = table.scan()
+    for item in response['Items']:
+        send_notification(item['email'], message)
+
+def create_post(poster_email, post_content):
+    table = dynamodb.Table(POSTS_TABLE)
+    post_id = generate_unique_post_id()
+    response = table.put_item(
+        Item={
+            'post_id': post_id,
+            'poster_email': poster_email,
+            'content': post_content,
+            'scores': []
+        }
+    )
+    send_post_notification_to_friends(poster_email, post_id)
+
+def create_comment(commenter_email, comment_content, post_id, parent_comment_id=None):
+    table = dynamodb.Table(COMMENTS_TABLE)
+    comment_id = generate_unique_comment_id()
+    item = {
+        'comment_id': comment_id,
+        'post_id': post_id,
+        'commenter_email': commenter_email,
+        'content': comment_content
+    }
+    if parent_comment_id:
+        item['parent_comment_id'] = parent_comment_id
+    response = table.put_item(Item=item)
+    send_comment_notification_to_poster(post_id, commenter_email)
+    if parent_comment_id:
+        send_reply_notification_to_commenter(parent_comment_id, commenter_email)
+
+def send_post_notification_to_friends(poster_email, post_id):
+    table = dynamodb.Table(GROUP_FRIEND_LIST_TABLE)
+    response = table.get_item(
+        Key={
+            'email': poster_email
+        }
+    )
+    if 'Item' in response:
+        friends = response['Item'].get('friends', [])
+        for friend_email in friends:
+            send_notification(friend_email, f"Your friend {poster_email} has posted a new message with ID {post_id}")
+
+def send_comment_notification_to_poster(post_id, commenter_email):
+    table = dynamodb.Table(POSTS_TABLE)
+    response = table.get_item(
+        Key={
+            'post_id': post_id
+        }
+    )
+    if 'Item' in response:
+        poster_email = response['Item']['poster_email']
+        send_notification(poster_email, f"Your post with ID {post_id} has been commented on by {commenter_email}")
+
+def send_reply_notification_to_commenter(parent_comment_id, commenter_email):
+    table = dynamodb.Table(COMMENTS_TABLE)
+    response = table.get_item(
+        Key={
+            'comment_id': parent_comment_id
+        }
+    )
+    if 'Item' in response:
+        parent_commenter_email = response['Item']['commenter_email']
+        send_notification(parent_commenter_email, f"Your comment with ID {parent_comment_id} has been replied to by {commenter_email}")
+
+def send_notification(user_email, message):
+    try:
+        sns_client.publish(
+            TopicArn='arn:aws:sns:region:account-id:topic-name',  # 替换为实际的Topic ARN
+            Message=message,
+            Subject='Notification from ClickToNet',
+        )
+    except ClientError as e:
+        print(f"An error occurred: {e}")
+        raise
+
+def generate_unique_post_id():
+    return str(uuid.uuid4())
+
+def generate_unique_comment_id():
+    return str(uuid.uuid4())
