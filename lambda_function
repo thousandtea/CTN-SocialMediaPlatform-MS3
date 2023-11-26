@@ -5,7 +5,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 # MySQL database configuration
-# Replace the following values with your own database information
+# Replace these values with your own database information
 MYSQL_CONFIG = {
     'host': 'your-database-host',  # Replace with your database host address
     'user': 'your-database-user',  # Replace with your database username
@@ -89,12 +89,21 @@ def send_reply_notification_to_commenter(connection, parent_comment_id, commente
             send_notification(comment['commenter_email'], "Reply to your comment", f"Your comment with ID {parent_comment_id} has been replied to by {commenter_email}")
 
 def send_notification(recipient, subject, message):
-    # Use AWS SES to send email notifications
-    ses_client = boto3.client('ses')
+    # Use AWS SNS to send notifications
+    sns_client = boto3.client('sns')
     try:
-        # Replace with your verified email address in AWS SES
-        verified_email = 'your-verified-email@example.com'
-        response = ses_client.send_email(
-            Source=verified_email,
-            Destination={'ToAddresses': [recipient]},
-            Message
+        sns_client.publish(
+            TopicArn='arn:aws:sns:region:account-id:topic-name',  # Replace with your SNS topic ARN
+            Message=message,
+            Subject=subject
+        )
+        print("Notification sent successfully to SNS topic!")
+    except ClientError as e:
+        print(f"An error occurred: {e}")
+        raise
+
+def generate_unique_post_id():
+    return str(uuid.uuid4())
+
+def generate_unique_comment_id():
+    return str(uuid.uuid4())
