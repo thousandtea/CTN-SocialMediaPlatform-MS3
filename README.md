@@ -1,1 +1,1 @@
-# CTN-SocialMediaPlatform-MS3
+# CTN-SocialMediaPlatform-MS3-Notification
