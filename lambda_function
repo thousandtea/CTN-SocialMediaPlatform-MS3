@@ -4,13 +4,13 @@ import uuid
 import boto3
 from botocore.exceptions import ClientError
 
-# MySQL数据库配置
-# 请将下面的值替换为您自己的数据库信息
+# MySQL database configuration
+# Replace the following values with your own database information
 MYSQL_CONFIG = {
-    'host': 'your-database-host',  # 替换为您的数据库主机地址
-    'user': 'your-database-user',  # 替换为您的数据库用户名
-    'password': 'your-database-password',  # 替换为您的数据库密码
-    'db': 'your-database-name',  # 替换为您的数据库名称
+    'host': 'your-database-host',  # Replace with your database host address
+    'user': 'your-database-user',  # Replace with your database username
+    'password': 'your-database-password',  # Replace with your database password
+    'db': 'your-database-name',  # Replace with your database name
     'charset': 'utf8mb4',
     'cursorclass': pymysql.cursors.DictCursor
 }
@@ -89,26 +89,12 @@ def send_reply_notification_to_commenter(connection, parent_comment_id, commente
             send_notification(comment['commenter_email'], "Reply to your comment", f"Your comment with ID {parent_comment_id} has been replied to by {commenter_email}")
 
 def send_notification(recipient, subject, message):
-    # 使用AWS SES发送电子邮件通知
+    # Use AWS SES to send email notifications
     ses_client = boto3.client('ses')
     try:
-        # 替换为您在AWS SES中验证过的电子邮件地址
+        # Replace with your verified email address in AWS SES
         verified_email = 'your-verified-email@example.com'
         response = ses_client.send_email(
             Source=verified_email,
             Destination={'ToAddresses': [recipient]},
-            Message={
-                'Subject': {'Data': subject},
-                'Body': {'Text': {'Data': message}}
-            }
-        )
-        print(f"Email sent! Message ID: {response['MessageId']}")
-    except ClientError as e:
-        print(f"An error occurred: {e}")
-        raise
-
-def generate_unique_post_id():
-    return str(uuid.uuid4())
-
-def generate_unique_comment_id():
-    return str(uuid.uuid4())
+            Message
