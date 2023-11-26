@@ -1,33 +1,34 @@
 import json
+import pymysql
+import uuid
 import boto3
 from botocore.exceptions import ClientError
-import uuid
 
-# 假设的DynamoDB表格名称
-USERS_TABLE = 'users_table'
-POSTS_TABLE = 'posts_table'
-COMMENTS_TABLE = 'comments_table'
-GROUP_FRIEND_LIST_TABLE = 'group_friend_list_table'
-
-# 创建DynamoDB客户端
-dynamodb = boto3.resource('dynamodb')
-sns_client = boto3.client('sns')
+# MySQL数据库配置
+# 请将下面的值替换为您自己的数据库信息
+MYSQL_CONFIG = {
+    'host': 'your-database-host',  # 替换为您的数据库主机地址
+    'user': 'your-database-user',  # 替换为您的数据库用户名
+    'password': 'your-database-password',  # 替换为您的数据库密码
+    'db': 'your-database-name',  # 替换为您的数据库名称
+    'charset': 'utf8mb4',
+    'cursorclass': pymysql.cursors.DictCursor
+}
 
 def lambda_handler(event, context):
     try:
-        # 根据事件类型执行不同的操作
+        connection = pymysql.connect(**MYSQL_CONFIG)
+
         if event['type'] == 'new_forum_message':
-            # 处理论坛新消息提醒
-            send_forum_message_notification(event['message'])
+            send_forum_message_notification(connection, event['message'])
         elif event['type'] == 'new_post':
-            # 发帖时向好友列表发送消息
-            create_post(event['poster_email'], event['post_content'])
+            create_post(connection, event['poster_email'], event['post_content'])
         elif event['type'] == 'new_comment':
-            # 回帖（包括楼中楼）通知
-            create_comment(event['commenter_email'], event['comment_content'], event['post_id'], event.get('parent_comment_id'))
+            create_comment(connection, event['commenter_email'], event['comment_content'], event['post_id'], event.get('parent_comment_id'))
         else:
             print("Event type not recognized")
         
+        connection.close()
         return {
             'statusCode': 200,
             'body': json.dumps('Operation completed successfully')
@@ -39,84 +40,69 @@ def lambda_handler(event, context):
             'body': json.dumps('Error processing the request')
         }
 
-# 辅助函数定义
+def send_forum_message_notification(connection, message):
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT email FROM users")
+        for row in cursor.fetchall():
+            send_notification(row['email'], "New forum message", message)
 
-def send_forum_message_notification(message):
-    table = dynamodb.Table(USERS_TABLE)
-    response = table.scan()
-    for item in response['Items']:
-        send_notification(item['email'], message)
-
-def create_post(poster_email, post_content):
-    table = dynamodb.Table(POSTS_TABLE)
+def create_post(connection, poster_email, post_content):
     post_id = generate_unique_post_id()
-    response = table.put_item(
-        Item={
-            'post_id': post_id,
-            'poster_email': poster_email,
-            'content': post_content,
-            'scores': []
-        }
-    )
-    send_post_notification_to_friends(poster_email, post_id)
+    with connection.cursor() as cursor:
+        sql = "INSERT INTO posts (post_id, poster_email, content) VALUES (%s, %s, %s)"
+        cursor.execute(sql, (post_id, poster_email, post_content))
+    connection.commit()
+    send_post_notification_to_friends(connection, poster_email, post_id)
 
-def create_comment(commenter_email, comment_content, post_id, parent_comment_id=None):
-    table = dynamodb.Table(COMMENTS_TABLE)
+def create_comment(connection, commenter_email, comment_content, post_id, parent_comment_id=None):
     comment_id = generate_unique_comment_id()
-    item = {
-        'comment_id': comment_id,
-        'post_id': post_id,
-        'commenter_email': commenter_email,
-        'content': comment_content
-    }
+    with connection.cursor() as cursor:
+        sql = "INSERT INTO comments (comment_id, post_id, commenter_email, content, parent_comment_id) VALUES (%s, %s, %s, %s, %s)"
+        cursor.execute(sql, (comment_id, post_id, commenter_email, comment_content, parent_comment_id))
+    connection.commit()
+    send_comment_notification_to_poster(connection, post_id, commenter_email)
     if parent_comment_id:
-        item['parent_comment_id'] = parent_comment_id
-    response = table.put_item(Item=item)
-    send_comment_notification_to_poster(post_id, commenter_email)
-    if parent_comment_id:
-        send_reply_notification_to_commenter(parent_comment_id, commenter_email)
+        send_reply_notification_to_commenter(connection, parent_comment_id, commenter_email)
 
-def send_post_notification_to_friends(poster_email, post_id):
-    table = dynamodb.Table(GROUP_FRIEND_LIST_TABLE)
-    response = table.get_item(
-        Key={
-            'email': poster_email
-        }
-    )
-    if 'Item' in response:
-        friends = response['Item'].get('friends', [])
-        for friend_email in friends:
-            send_notification(friend_email, f"Your friend {poster_email} has posted a new message with ID {post_id}")
+def send_post_notification_to_friends(connection, poster_email, post_id):
+    with connection.cursor() as cursor:
+        sql = "SELECT friend_email FROM friends WHERE user_email = %s"
+        cursor.execute(sql, (poster_email,))
+        friends = cursor.fetchall()
+        for friend in friends:
+            send_notification(friend['friend_email'], "New post", f"Your friend {poster_email} has posted a new message with ID {post_id}")
 
-def send_comment_notification_to_poster(post_id, commenter_email):
-    table = dynamodb.Table(POSTS_TABLE)
-    response = table.get_item(
-        Key={
-            'post_id': post_id
-        }
-    )
-    if 'Item' in response:
-        poster_email = response['Item']['poster_email']
-        send_notification(poster_email, f"Your post with ID {post_id} has been commented on by {commenter_email}")
+def send_comment_notification_to_poster(connection, post_id, commenter_email):
+    with connection.cursor() as cursor:
+        sql = "SELECT poster_email FROM posts WHERE post_id = %s"
+        cursor.execute(sql, (post_id,))
+        post = cursor.fetchone()
+        if post:
+            send_notification(post['poster_email'], "New comment", f"Your post with ID {post_id} has been commented on by {commenter_email}")
 
-def send_reply_notification_to_commenter(parent_comment_id, commenter_email):
-    table = dynamodb.Table(COMMENTS_TABLE)
-    response = table.get_item(
-        Key={
-            'comment_id': parent_comment_id
-        }
-    )
-    if 'Item' in response:
-        parent_commenter_email = response['Item']['commenter_email']
-        send_notification(parent_commenter_email, f"Your comment with ID {parent_comment_id} has been replied to by {commenter_email}")
+def send_reply_notification_to_commenter(connection, parent_comment_id, commenter_email):
+    with connection.cursor() as cursor:
+        sql = "SELECT commenter_email FROM comments WHERE comment_id = %s"
+        cursor.execute(sql, (parent_comment_id,))
+        comment = cursor.fetchone()
+        if comment:
+            send_notification(comment['commenter_email'], "Reply to your comment", f"Your comment with ID {parent_comment_id} has been replied to by {commenter_email}")
 
-def send_notification(user_email, message):
+def send_notification(recipient, subject, message):
+    # 使用AWS SES发送电子邮件通知
+    ses_client = boto3.client('ses')
     try:
-        sns_client.publish(
-            TopicArn='arn:aws:sns:region:account-id:topic-name',  # 替换为实际的Topic ARN
-            Message=message,
-            Subject='Notification from ClickToNet',
+        # 替换为您在AWS SES中验证过的电子邮件地址
+        verified_email = 'your-verified-email@example.com'
+        response = ses_client.send_email(
+            Source=verified_email,
+            Destination={'ToAddresses': [recipient]},
+            Message={
+                'Subject': {'Data': subject},
+                'Body': {'Text': {'Data': message}}
+            }
         )
+        print(f"Email sent! Message ID: {response['MessageId']}")
     except ClientError as e:
         print(f"An error occurred: {e}")
         raise
