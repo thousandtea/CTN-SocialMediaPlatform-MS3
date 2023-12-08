@@ -6,10 +6,10 @@ from botocore.exceptions import ClientError
 
 # MySQL database configuration
 MYSQL_CONFIG = {
-    'host': 'your-database-host',
-    'user': 'your-database-user',
-    'password': 'your-database-password',
-    'db': 'your-database-name',
+    'host': 'your-database-host',  # Replace with your database host address
+    'user': 'your-database-user',  # Replace with your database username
+    'password': 'your-database-password',  # Replace with your database password
+    'db': 'your-database-name',  # Replace with your database name
     'charset': 'utf8mb4',
     'cursorclass': pymysql.cursors.DictCursor
 }
@@ -60,4 +60,5 @@ def generate_unique_comment_id():
     return str(uuid.uuid4())
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=80)
+    app.run(debug=True, host='0.0.0.0', port=5000)
+
