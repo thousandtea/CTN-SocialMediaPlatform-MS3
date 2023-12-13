@@ -16,28 +16,12 @@ MYSQL_CONFIG = {
 
 app = Flask(__name__)
 
-@app.route('/notify', methods=['POST'])
+@app.route('/notify', methods=['GET'])
 def notify():
-    event = request.json
-    try:
-        connection = pymysql.connect(**MYSQL_CONFIG)
+    # Example response for GET request
+    return jsonify({'message': 'GET request received'}), 200
 
-        if event['type'] == 'new_forum_message':
-            send_forum_message_notification(connection, event['message'])
-        elif event['type'] == 'new_post':
-            create_post(connection, event['poster_email'], event['post_content'])
-        elif event['type'] == 'new_comment':
-            create_comment(connection, event['commenter_email'], event['comment_content'], event['post_id'], event.get('parent_comment_id'))
-        else:
-            return jsonify({'message': 'Event type not recognized'}), 400
-        
-        connection.close()
-        return jsonify({'message': 'Operation completed successfully'}), 200
-    except Exception as e:
-        print(e)
-        return jsonify({'message': 'Error processing the request'}), 500
-
-# Define other functions here (send_forum_message_notification, create_post, etc.)
+# Other helper functions (send_forum_message_notification, create_post, etc.) remain unchanged
 
 def send_notification(recipient, subject, message):
     # Use AWS SNS to send notifications (same as in your Lambda function)
@@ -61,4 +45,3 @@ def generate_unique_comment_id():
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
-
