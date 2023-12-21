@@ -1,4 +1,4 @@
-Simport boto3
+import boto3
 
 topic_arn = "arn:aws:sns:us-east-2:827800665158:CTN"
 def send_sns(message, subject):
@@ -25,7 +25,7 @@ def lambda_handler(event, context):
         subject = "Processes completion Notification"
         SNSResult = send_sns(message, subject)
         if SNSResult :
-            print("Notification Sent..")
+            print("Notification Sent..") 
             return SNSResult
         else:
             return False
